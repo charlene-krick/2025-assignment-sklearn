@@ -61,7 +61,7 @@ from sklearn.utils.multiclass import check_classification_targets
 class KNearestNeighbors(ClassifierMixin, BaseEstimator):
     """KNearestNeighbors classifier."""
 
-    def __init__(self, n_neighbors=1): # noqa: D107
+    def __init__(self, n_neighbors=1):  # noqa: D107
         self.n_neighbors = n_neighbors
 
     def fit(self, X, y):
@@ -216,7 +216,7 @@ class MonthlySplit(BaseCrossValidator):
             yield idx_train, idx_test
 
     def _extract_dates(self, X):
-        """Helper to safely extract the date series."""
+        """Get the date series safely."""
         # Ensure X is a DataFrame (handles X as Series or numpy array)
         if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(X)
@@ -237,7 +237,7 @@ class MonthlySplit(BaseCrossValidator):
         return dates
 
     def _get_unique_periods(self, X):
-        """Helper to get sorted unique periods from X."""
+        """Get sorted unique periods from X."""
         dates = self._extract_dates(X)
         # Convert to period (M) and Sort
         # We use pd.Index wrapper to ensure .to_period works on Series too

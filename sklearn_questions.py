@@ -1,3 +1,10 @@
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import BaseCrossValidator
+from sklearn.utils.validation import check_is_fitted, validate_data
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.multiclass import check_classification_targets
 """Assignment - making a sklearn estimator and cv splitter.
 
 The goal of this assignment is to implement by yourself:
@@ -48,23 +55,13 @@ from sklearn.metrics.pairwise import pairwise_distances
 
 to compute distances between 2 sets of samples.
 """
-import numpy as np
-import pandas as pd
-
-from sklearn.base import BaseEstimator
-from sklearn.base import ClassifierMixin
-
-from sklearn.model_selection import BaseCrossValidator
-
-from sklearn.utils.validation import check_is_fitted
-from sklearn.utils.validation import validate_data
-from sklearn.metrics.pairwise import pairwise_distances
+"""Assignment - making a sklearn estimator and cv splitter."""
 
 
 class KNearestNeighbors(ClassifierMixin, BaseEstimator):
     """KNearestNeighbors classifier."""
 
-    def __init__(self, n_neighbors=1):  # noqa: D107
+    def __init__(self, n_neighbors=1):
         self.n_neighbors = n_neighbors
 
     def fit(self, X, y):
@@ -82,6 +79,20 @@ class KNearestNeighbors(ClassifierMixin, BaseEstimator):
         self : instance of KNearestNeighbors
             The current instance of the classifier
         """
+        # validate_data handles input validation AND sets self.n_features_in_
+        X, y = validate_data(self, X, y, ensure_2d=True, dtype="numeric")
+
+        # Check that y is discrete (classification)
+        check_classification_targets(y)
+
+        # Encode labels to ensure they are integers 0, 1, 2...
+        self.le_ = LabelEncoder()
+        y_encoded = self.le_.fit_transform(y)
+
+        self.X_train_ = X
+        self.y_train_ = y_encoded
+        self.classes_ = self.le_.classes_
+
         return self
 
     def predict(self, X):
@@ -97,8 +108,28 @@ class KNearestNeighbors(ClassifierMixin, BaseEstimator):
         y : ndarray, shape (n_test_samples,)
             Predicted class labels for each test data sample.
         """
-        y_pred = np.zeros(X.shape[0])
-        return y_pred
+        check_is_fitted(self)
+
+        X = validate_data(self, X, reset=False,
+                          ensure_2d=True, dtype="numeric")
+
+        n_samples = X.shape[0]
+        y_pred_indices = np.zeros(n_samples, dtype=int)
+
+        for i in range(n_samples):
+            # Euclidean distance
+            distances = np.linalg.norm(self.X_train_ - X[i], axis=1)
+
+            # k nearest neighbors
+            idx_neighbors = np.argsort(distances)[:self.n_neighbors]
+
+            neighbor_labels = self.y_train_[idx_neighbors]
+
+            counts = np.bincount(neighbor_labels)
+            y_pred_indices[i] = np.argmax(counts)
+
+        # Decode indices back to original labels
+        return self.le_.inverse_transform(y_pred_indices)
 
     def score(self, X, y):
         """Calculate the score of the prediction.
@@ -111,11 +142,12 @@ class KNearestNeighbors(ClassifierMixin, BaseEstimator):
             target values.
 
         Returns
-        ----------
+        -------
         score : float
             Accuracy of the model computed for the (X, y) pairs.
         """
-        return 0.
+        y_pred = self.predict(X)
+        return np.mean(y_pred == y)
 
 
 class MonthlySplit(BaseCrossValidator):
@@ -134,41 +166,27 @@ class MonthlySplit(BaseCrossValidator):
         To use the index as column just set `time_col` to `'index'`.
     """
 
-    def __init__(self, time_col='index'):  # noqa: D107
+    def __init__(self, time_col='index'):
         self.time_col = time_col
 
     def get_n_splits(self, X, y=None, groups=None):
         """Return the number of splitting iterations in the cross-validator.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data, where `n_samples` is the number of samples
-            and `n_features` is the number of features.
-        y : array-like of shape (n_samples,)
-            Always ignored, exists for compatibility.
-        groups : array-like of shape (n_samples,)
-            Always ignored, exists for compatibility.
 
         Returns
         -------
         n_splits : int
             The number of splits.
         """
-        return 0
+        # We reuse the logic in split to ensure consistency, but we don't yield
+        # anything. We just calculate the unique periods.
+        try:
+            return self._get_unique_periods(X).size - 1
+        except ValueError:
+            # If validation fails (e.g. not a dataframe), return 0
+            return 0
 
-    def split(self, X, y, groups=None):
+    def split(self, X, y=None, groups=None):
         """Generate indices to split data into training and test set.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data, where `n_samples` is the number of samples
-            and `n_features` is the number of features.
-        y : array-like of shape (n_samples,)
-            Always ignored, exists for compatibility.
-        groups : array-like of shape (n_samples,)
-            Always ignored, exists for compatibility.
 
         Yields
         ------
@@ -177,12 +195,52 @@ class MonthlySplit(BaseCrossValidator):
         idx_test : ndarray
             The testing set indices for that split.
         """
+        # 1. Get the sorted unique periods (Year-Month)
+        unique_periods = self._get_unique_periods(X)
+        n_splits = len(unique_periods) - 1
 
-        n_samples = X.shape[0]
-        n_splits = self.get_n_splits(X, y, groups)
+        # 2. Re-extract the period array (unsorted, matching X's order)
+        #    to perform the masking.
+        #    (We do this again to keep the helper function simple)
+        dates = self._extract_dates(X)
+        periods = pd.Index(dates).to_period("M")
+
         for i in range(n_splits):
-            idx_train = range(n_samples)
-            idx_test = range(n_samples)
-            yield (
-                idx_train, idx_test
-            )
+            train_period = unique_periods[i]
+            test_period = unique_periods[i+1]
+
+            # Compare the period array with the specific train/test period
+            idx_train = np.where(periods == train_period)[0]
+            idx_test = np.where(periods == test_period)[0]
+
+            yield idx_train, idx_test
+
+    def _extract_dates(self, X):
+        """Helper to safely extract the date series."""
+        # Ensure X is a DataFrame (handles X as Series or numpy array)
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
+
+        if self.time_col == 'index':
+            dates = X.index
+        else:
+            if self.time_col not in X.columns:
+                raise ValueError(f"{self.time_col} not in X columns")
+            dates = X[self.time_col]
+
+        # Strict validation: The test expects a ValueError if the column
+        # is NOT a datetime (e.g. integers).
+        if not pd.api.types.is_datetime64_any_dtype(dates):
+            # Try to catch simple integer ranges that shouldn't be dates
+            raise ValueError(
+                f"Column {self.time_col} is not a datetime.")
+        return dates
+
+    def _get_unique_periods(self, X):
+        """Helper to get sorted unique periods from X."""
+        dates = self._extract_dates(X)
+        # Convert to period (M) and Sort
+        # We use pd.Index wrapper to ensure .to_period works on Series too
+        periods = pd.Index(dates).to_period("M")
+        # Return sorted unique periods
+        return np.sort(periods.unique())

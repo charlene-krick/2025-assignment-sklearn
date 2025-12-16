@@ -1,10 +1,4 @@
-import pandas as pd
-import numpy as np
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.model_selection import BaseCrossValidator
-from sklearn.utils.validation import check_is_fitted, validate_data
-from sklearn.preprocessing import LabelEncoder
-from sklearn.utils.multiclass import check_classification_targets
+
 """Assignment - making a sklearn estimator and cv splitter.
 
 The goal of this assignment is to implement by yourself:
@@ -56,6 +50,13 @@ from sklearn.metrics.pairwise import pairwise_distances
 to compute distances between 2 sets of samples.
 """
 """Assignment - making a sklearn estimator and cv splitter."""
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import BaseCrossValidator
+from sklearn.utils.validation import check_is_fitted, validate_data
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.multiclass import check_classification_targets
 
 
 class KNearestNeighbors(ClassifierMixin, BaseEstimator):
